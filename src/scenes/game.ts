@@ -1,0 +1,118 @@
+import Phaser from "phaser";
+import Player from "../components/Player";
+import Enemy from "../components/Enemy";
+import CameraController from "../components/CameraController";
+
+export default class GameScene extends Phaser.Scene {
+    private players: Player[] = [];
+    private enemies: Enemy[] = [];
+    private readonly SCREEN_WIDTH = 3000;
+    private readonly SCREEN_HEIGHT = 3000;
+    private uiCam!: Phaser.Cameras.Scene2D.Camera;
+    private uiIgnored = new Set<Phaser.GameObjects.GameObject>();
+    private mainIgnored = new Set<Phaser.GameObjects.GameObject>();
+
+    constructor() {
+        super({ key: "GameScene" });
+    }
+
+    preload() { }
+
+    create() {
+        this.cameras.main.setBounds(0, 0, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
+
+        this.createPlayers();
+        this.createEnemies();
+
+        new CameraController(this, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
+
+        const controlsText = this.add
+            .text(10, 10, 'Left Click to Select\nLeft Click/Drag to add points\nRight Click + Drag to Pan\nMouse Wheel to Zoom', {
+                font: '16px Arial',
+                padding: { x: 10, y: 5 },
+                color: '#ffffff',
+                backgroundColor: '#333333'
+            })
+            .setScrollFactor(0)
+            .setDepth(1000);
+        controlsText.setData('ui', true);
+
+        const mainCam = this.cameras.main;
+        this.uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height);
+        this.uiCam.setZoom(1);
+        this.uiCam.setScroll(0, 0);
+
+        mainCam.ignore(controlsText);
+        this.mainIgnored.add(controlsText);
+
+        this.children.list.forEach(child => {
+            const go = child as Phaser.GameObjects.GameObject;
+            const isUI = (go as any).getData && (go as any).getData('ui') === true;
+            if (!isUI) {
+                this.uiCam.ignore(go);
+                this.uiIgnored.add(go);
+            }
+        });
+
+        this.scale.on('resize', (gameSize: { width: number; height: number }) => {
+            this.uiCam.setSize(gameSize.width, gameSize.height);
+        });
+    }
+
+    private createPlayers(): void {
+        const player1 = new Player(
+            this,
+            this.SCREEN_WIDTH * 0.15,
+            this.SCREEN_HEIGHT * 0.1,
+            this.SCREEN_WIDTH,
+            this.SCREEN_HEIGHT,
+            0x00ff88
+        );
+
+        const player2 = new Player(
+            this,
+            this.SCREEN_WIDTH * 0.15,
+            this.SCREEN_HEIGHT * 0.5,
+            this.SCREEN_WIDTH,
+            this.SCREEN_HEIGHT,
+            0xff8800
+        );
+
+        this.players.push(player1, player2);
+    }
+
+    private createEnemies(): void {
+        for (let i = 0; i < 10; i++) {
+            const enemy = new Enemy(
+                this,
+                Phaser.Math.Between(this.SCREEN_WIDTH * 0, this.SCREEN_WIDTH * 0.7),
+                Phaser.Math.Between(50, this.SCREEN_HEIGHT - 50),
+                0.5 + Math.random() * 1,
+                this.SCREEN_WIDTH,
+                this.SCREEN_HEIGHT
+            );
+            this.enemies.push(enemy);
+        }
+    }
+
+    update() {
+        const list = this.children.list as Phaser.GameObjects.GameObject[];
+        for (const obj of list) {
+            const isUI = (obj as any).getData && (obj as any).getData('ui') === true;
+            if (isUI) {
+                if (!this.mainIgnored.has(obj)) {
+                    this.cameras.main.ignore(obj);
+                    this.mainIgnored.add(obj);
+                }
+            } else {
+                if (!this.uiIgnored.has(obj)) {
+                    this.uiCam.ignore(obj);
+                    this.uiIgnored.add(obj);
+                }
+            }
+        }
+
+        this.players.forEach(player => player.update());
+        this.enemies.forEach(enemy => enemy.update());
+    }
+}
