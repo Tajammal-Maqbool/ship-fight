@@ -10,6 +10,7 @@ const config = {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
+    backgroundColor: "#181818",
     scene: [LoadingScene, GameScene]
 }
 

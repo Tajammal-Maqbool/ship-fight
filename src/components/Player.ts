@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import * as dat from 'dat.gui';
 
 interface ClickPoint {
     x: number;
@@ -23,6 +24,7 @@ type MovementCommand =
 export default class Player extends Phaser.GameObjects.Sprite {
     private static selectedPlayer: Player | null = null;
     private static gameScene: Phaser.Scene | null = null;
+    private static gui: dat.GUI | null = null;
     
     private moveSpeed: number = 3;
     private screenWidth: number;
@@ -37,11 +39,12 @@ export default class Player extends Phaser.GameObjects.Sprite {
     private velocityX: number = 0;
     private velocityY: number = 0;
     private angularVelocity: number = 0;
-    private readonly THRUST_POWER = 0.05;
-    private readonly ROTATION_POWER = 0.003;
-    private readonly MAX_SPEED = 6;
-    private readonly MAX_ROTATION_SPEED = 0.08;
-    private readonly ROTATION_DAMPING = 0.92;
+    
+    private THRUST_POWER = 0.05;
+    private ROTATION_POWER = 0.003;
+    private MAX_SPEED = 6;
+    private MAX_ROTATION_SPEED = 0.08;
+    private ROTATION_DAMPING = 0.92;
 
     private keysPressed: Set<string> = new Set();
     private keyboardEnabled: boolean = false;
@@ -165,14 +168,14 @@ export default class Player extends Phaser.GameObjects.Sprite {
             this.controlMode = this.controlMode === 'mouse' ? 'keyboard' : 'mouse';
             this.keyboardEnabled = this.controlMode === 'keyboard';
             
-            // Clear movement when switching modes
             if (this.controlMode === 'keyboard') {
                 this.clearCurrentMovement();
+                this.clearCommandQueue();
                 this.velocityX = 0;
                 this.velocityY = 0;
                 this.angularVelocity = 0;
                 this.keysPressed.clear();
-                console.log('Control mode: KEYBOARD');
+                console.log('Control mode: KEYBOARD - All movement points cleared');
             } else {
                 console.log('Control mode: MOUSE');
             }
@@ -194,6 +197,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
         if (this.highlightSprite) {
             this.highlightSprite.setVisible(true);
         }
+        this.createDebugGUI();
     }
 
     private deselect(): void {
@@ -209,6 +213,83 @@ export default class Player extends Phaser.GameObjects.Sprite {
             this.highlightSprite.setVisible(false);
         }
         this.updateShipArrow();
+        this.destroyDebugGUI();
+    }
+
+    private createDebugGUI(): void {
+        this.destroyDebugGUI();
+
+        Player.gui = new dat.GUI({ name: 'Player Controls' });
+        
+        const movementFolder = Player.gui.addFolder('Mouse Mode Controls');
+        movementFolder.add(this as any, 'moveSpeed', 0.5, 10, 0.1).name('Move Speed');
+        movementFolder.open();
+        
+        const physicsFolder = Player.gui.addFolder('Keyboard Mode Controls');
+        physicsFolder.add(this as any, 'THRUST_POWER', 0.01, 0.2, 0.005).name('Thrust Power');
+        physicsFolder.add(this as any, 'ROTATION_POWER', 0.001, 0.01, 0.0001).name('Rotation Power');
+        physicsFolder.add(this as any, 'MAX_SPEED', 1, 15, 0.5).name('Max Speed');
+        physicsFolder.add(this as any, 'MAX_ROTATION_SPEED', 0.01, 0.2, 0.01).name('Max Rotation Speed');
+        physicsFolder.add(this as any, 'ROTATION_DAMPING', 0.8, 0.99, 0.01).name('Rotation Damping');
+        physicsFolder.open();
+        
+        const stateFolder = Player.gui.addFolder('Current State');
+        const state = {
+            velocityX: this.velocityX.toFixed(2),
+            velocityY: this.velocityY.toFixed(2),
+            angularVelocity: this.angularVelocity.toFixed(4),
+            rotation: (this.rotation * 180 / Math.PI).toFixed(1) + '°',
+            controlMode: this.controlMode,
+            movementMode: this.movementMode
+        };
+        
+        const updateState = () => {
+            state.velocityX = this.velocityX.toFixed(2);
+            state.velocityY = this.velocityY.toFixed(2);
+            state.angularVelocity = this.angularVelocity.toFixed(4);
+            state.rotation = (this.rotation * 180 / Math.PI).toFixed(1) + '°';
+            state.controlMode = this.controlMode;
+            state.movementMode = this.movementMode;
+        };
+        
+        this.scene.events.on('update', updateState);
+        
+        stateFolder.add(state, 'velocityX').listen().name('Velocity X');
+        stateFolder.add(state, 'velocityY').listen().name('Velocity Y');
+        stateFolder.add(state, 'angularVelocity').listen().name('Angular Velocity');
+        stateFolder.add(state, 'rotation').listen().name('Rotation');
+        stateFolder.add(state, 'controlMode').listen().name('Control Mode');
+        stateFolder.add(state, 'movementMode').listen().name('Movement Mode');
+        stateFolder.open();
+        
+        const actions = {
+            resetVelocity: () => {
+                this.velocityX = 0;
+                this.velocityY = 0;
+                this.angularVelocity = 0;
+            },
+            resetPhysics: () => {
+                this.THRUST_POWER = 0.05;
+                this.ROTATION_POWER = 0.003;
+                this.MAX_SPEED = 6;
+                this.MAX_ROTATION_SPEED = 0.08;
+                this.ROTATION_DAMPING = 0.92;
+                this.moveSpeed = 3;
+
+                this.destroyDebugGUI();
+                this.createDebugGUI();
+            }
+        };
+        
+        Player.gui.add(actions, 'resetVelocity').name('Reset Velocity');
+        Player.gui.add(actions, 'resetPhysics').name('Reset Controls to Defaults');
+    }
+
+    private destroyDebugGUI(): void {
+        if (Player.gui) {
+            Player.gui.destroy();
+            Player.gui = null;
+        }
     }
 
     private clearCurrentMovement(): void {
@@ -225,7 +306,14 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.activeCommand = null;
     }
 
-
+    private clearCommandQueue(): void {
+        for (const command of this.commandQueue) {
+            if (command.graphics) {
+                command.graphics.destroy();
+            }
+        }
+        this.commandQueue = [];
+    }
 
     private handleWorldDrag(pointer: Phaser.Input.Pointer): void {
         if (!this.worldInteractionStarted || !this.dragStartPoint) return;
@@ -649,6 +737,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.clearCurrentMovement();
 
         if (Player.selectedPlayer === this) {
+            this.destroyDebugGUI();
             Player.selectedPlayer = null;
         }
 
