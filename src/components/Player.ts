@@ -32,6 +32,20 @@ export default class Player extends Phaser.GameObjects.Sprite {
     private shipArrow?: Phaser.GameObjects.Graphics;
     private highlightSprite?: Phaser.GameObjects.Sprite;
 
+    private controlMode: 'mouse' | 'keyboard' = 'mouse';
+
+    private velocityX: number = 0;
+    private velocityY: number = 0;
+    private angularVelocity: number = 0;
+    private readonly THRUST_POWER = 0.05;
+    private readonly ROTATION_POWER = 0.003;
+    private readonly MAX_SPEED = 6;
+    private readonly MAX_ROTATION_SPEED = 0.08;
+    private readonly ROTATION_DAMPING = 0.92;
+
+    private keysPressed: Set<string> = new Set();
+    private keyboardEnabled: boolean = false;
+
     private movementMode: 'idle' | 'moving-to-point' | 'moving-with-direction' = 'idle';
     private targetX: number;
     private targetY: number;
@@ -71,6 +85,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         this.createVisuals();
         this.setupShipInputHandlers();
+        this.setupKeyboardHandlers();
     }
 
     private setupGlobalInputHandlers(): void {
@@ -78,6 +93,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         Player.gameScene.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
             if (!Player.selectedPlayer) return;
+            if (Player.selectedPlayer.controlMode === 'keyboard') return;
 
             const hitObjects = Player.gameScene!.input.hitTestPointer(pointer);
             const clickedOnShip = hitObjects.some(obj => obj instanceof Player);
@@ -92,6 +108,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         Player.gameScene.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
             if (!Player.selectedPlayer) return;
+            if (Player.selectedPlayer.controlMode === 'keyboard') return;
             if (!pointer.isDown) return;
             if (!Player.selectedPlayer.worldInteractionStarted || !Player.selectedPlayer.dragStartPoint) return;
 
@@ -101,6 +118,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         Player.gameScene.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
             if (!Player.selectedPlayer) return;
+            if (Player.selectedPlayer.controlMode === 'keyboard') return; // Ignore mouse input in keyboard mode
             if (pointer.rightButtonReleased()) return;
             Player.selectedPlayer.handleWorldPointerUp(pointer);
         });
@@ -120,6 +138,44 @@ export default class Player extends Phaser.GameObjects.Sprite {
             this.movedDuringDrag = false;
             this.dragStartPoint = null;
             this.isDragMode = false;
+        });
+    }
+
+    private setupKeyboardHandlers(): void {
+        this.scene.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
+            if (Player.selectedPlayer !== this || !this.keyboardEnabled) return;
+
+            const key = event.key.toUpperCase();
+            if (['W', 'A', 'S', 'D', 'Q', 'E'].includes(key)) {
+                this.keysPressed.add(key);
+                event.preventDefault();
+            }
+        });
+
+        this.scene.input.keyboard?.on('keyup', (event: KeyboardEvent) => {
+            if (Player.selectedPlayer !== this || !this.keyboardEnabled) return;
+
+            const key = event.key.toUpperCase();
+            this.keysPressed.delete(key);
+        });
+
+        this.scene.input.keyboard?.on('keydown-T', () => {
+            if (Player.selectedPlayer !== this) return;
+
+            this.controlMode = this.controlMode === 'mouse' ? 'keyboard' : 'mouse';
+            this.keyboardEnabled = this.controlMode === 'keyboard';
+            
+            // Clear movement when switching modes
+            if (this.controlMode === 'keyboard') {
+                this.clearCurrentMovement();
+                this.velocityX = 0;
+                this.velocityY = 0;
+                this.angularVelocity = 0;
+                this.keysPressed.clear();
+                console.log('Control mode: KEYBOARD');
+            } else {
+                console.log('Control mode: MOUSE');
+            }
         });
     }
 
@@ -289,7 +345,15 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         this.shipArrow.clear();
 
-        if (this.movementMode === 'idle') {
+        if (this.controlMode === 'keyboard') {
+            // In keyboard mode, show velocity direction if moving
+            const speed = Math.sqrt(this.velocityX * this.velocityX + this.velocityY * this.velocityY);
+            if (speed > 0.5) {
+                const dirX = this.velocityX / speed;
+                const dirY = this.velocityY / speed;
+                this.drawShipDirectionArrow(dirX, dirY, 0x00ffff, 40);
+            }
+        } else if (this.movementMode === 'idle') {
             this.drawShipDirectionArrow(0, -1, this.color, 30);
         } else if (this.movementMode === 'moving-to-point' || this.movementMode === 'moving-with-direction') {
             const dx = this.targetX - this.x;
@@ -370,14 +434,117 @@ export default class Player extends Phaser.GameObjects.Sprite {
         }
     }
 
-    public update(): void {
-        if (this.movementMode === 'moving-to-point') {
-            this.updatePointMovement();
-        } else if (this.movementMode === 'moving-with-direction') {
-            this.updateDirectionMovement();
+    private updateKeyboardPhysics(): void {
+        // Apply rotation
+        if (this.keysPressed.has('A')) {
+            this.angularVelocity -= this.ROTATION_POWER;
+        }
+        if (this.keysPressed.has('D')) {
+            this.angularVelocity += this.ROTATION_POWER;
         }
 
-        this.rotation = this.approachRotation(this.rotation, this.targetRotation, 0.1);
+        // Apply rotational damping when no rotation keys pressed
+        if (!this.keysPressed.has('A') && !this.keysPressed.has('D')) {
+            this.angularVelocity *= this.ROTATION_DAMPING;
+            if (Math.abs(this.angularVelocity) < 0.0001) {
+                this.angularVelocity = 0;
+            }
+        }
+
+        // Clamp rotation speed
+        this.angularVelocity = Phaser.Math.Clamp(
+            this.angularVelocity,
+            -this.MAX_ROTATION_SPEED,
+            this.MAX_ROTATION_SPEED
+        );
+
+        // Apply rotation to ship
+        this.rotation += this.angularVelocity;
+
+        // Calculate thrust direction based on ship rotation
+        const shipAngle = this.rotation - Math.PI / 2; // -90 degrees because ship points up by default
+        const forwardX = Math.cos(shipAngle);
+        const forwardY = Math.sin(shipAngle);
+        const rightX = Math.cos(shipAngle + Math.PI / 2);
+        const rightY = Math.sin(shipAngle + Math.PI / 2);
+
+        // Apply thrust based on keys and update highlight sprite
+        const isForwardThrust = this.keysPressed.has('W');
+        const isBackwardThrust = this.keysPressed.has('S');
+        
+        if (isForwardThrust) {
+            this.velocityX += forwardX * this.THRUST_POWER;
+            this.velocityY += forwardY * this.THRUST_POWER;
+            this.updateThrustVisual('forward');
+        } else if (isBackwardThrust) {
+            this.velocityX -= forwardX * this.THRUST_POWER;
+            this.velocityY -= forwardY * this.THRUST_POWER;
+            this.updateThrustVisual('backward');
+        } else {
+            this.updateThrustVisual('none');
+        }
+        
+        if (this.keysPressed.has('Q')) {
+            this.velocityX -= rightX * this.THRUST_POWER;
+            this.velocityY -= rightY * this.THRUST_POWER;
+        }
+        if (this.keysPressed.has('E')) {
+            this.velocityX += rightX * this.THRUST_POWER;
+            this.velocityY += rightY * this.THRUST_POWER;
+        }
+
+        // Clamp to max speed
+        const currentSpeed = Math.sqrt(this.velocityX * this.velocityX + this.velocityY * this.velocityY);
+        if (currentSpeed > this.MAX_SPEED) {
+            const scale = this.MAX_SPEED / currentSpeed;
+            this.velocityX *= scale;
+            this.velocityY *= scale;
+        }
+
+        // Apply velocity to position
+        this.x += this.velocityX;
+        this.y += this.velocityY;
+
+        // Keep ship within bounds
+        this.x = Phaser.Math.Clamp(this.x, 25, this.screenWidth - 25);
+        this.y = Phaser.Math.Clamp(this.y, 25, this.screenHeight - 25);
+
+        // Stop at edges (bounce effect)
+        if (this.x <= 25 || this.x >= this.screenWidth - 25) {
+            this.velocityX *= -0.5;
+        }
+        if (this.y <= 25 || this.y >= this.screenHeight - 25) {
+            this.velocityY *= -0.5;
+        }
+    }
+
+    private updateThrustVisual(thrustType: 'forward' | 'backward' | 'none'): void {
+        if (!this.highlightSprite) return;
+
+        if (thrustType === 'forward') {
+            this.highlightSprite.setTexture('ship_player_1_thrusts_forward');
+        } else if (thrustType === 'backward') {
+            this.highlightSprite.setTexture('ship_player_1_thrusts_backward');
+        } else {
+            this.highlightSprite.setTexture('ship_player_1_highlight');
+        }
+    }
+
+    public update(): void {
+        if (this.controlMode === 'keyboard') {
+            this.updateKeyboardPhysics();
+            // In keyboard mode, target rotation follows actual rotation
+            this.targetRotation = this.rotation;
+        } else {
+            // Mouse control mode
+            if (this.movementMode === 'moving-to-point') {
+                this.updatePointMovement();
+            } else if (this.movementMode === 'moving-with-direction') {
+                this.updateDirectionMovement();
+            }
+
+            this.rotation = this.approachRotation(this.rotation, this.targetRotation, 0.1);
+        }
 
         if (this.highlightSprite) {
             this.highlightSprite.x = this.x;

@@ -27,8 +27,8 @@ export default class GameScene extends Phaser.Scene {
         new CameraController(this, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
 
         const controlsText = this.add
-            .text(10, 10, 'Left Click to Select\nLeft Click/Drag to add points\nRight Click + Drag to Pan\nMouse Wheel to Zoom', {
-                font: '16px Arial',
+            .text(10, 10, 'MOUSE MODE (Press T to toggle)\nLeft Click to Select\nLeft Click/Drag to add points\nRight Click + Drag to Pan\nMouse Wheel to Zoom\n\nKEYBOARD MODE:\nW=Forward, S=Backward\nA=Rotate Left, D=Rotate Right\nQ=Strafe Left, E=Strafe Right', {
+                font: '14px Arial',
                 padding: { x: 10, y: 5 },
                 color: '#ffffff',
                 backgroundColor: '#333333'

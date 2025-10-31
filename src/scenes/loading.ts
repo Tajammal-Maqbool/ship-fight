@@ -15,6 +15,8 @@ export default class LoadingScene extends Phaser.Scene {
         this.load.image("ship_enemy_1", "assets/ship_enemy_1.png");
         this.load.image("ship_player_1", "assets/ship_player_1.png");
         this.load.image("ship_player_1_highlight", "assets/ship_player_1_highlight.png");
+        this.load.image("ship_player_1_thrusts_forward", "assets/ship_player_1_thrusts_forward.png");
+        this.load.image("ship_player_1_thrusts_backward", "assets/ship_player_1_thrusts_backward.png");
         this.load.image("ship_player_2", "assets/ship_player_2.png");
 
         this.createLoadingScreen();
