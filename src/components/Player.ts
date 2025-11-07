@@ -25,7 +25,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
     private static selectedPlayer: Player | null = null;
     private static gameScene: Phaser.Scene | null = null;
     private static gui: dat.GUI | null = null;
-    
+    private static cameraController: any = null;
+
     private moveSpeed: number = 3;
     private screenWidth: number;
     private screenHeight: number;
@@ -39,15 +40,15 @@ export default class Player extends Phaser.GameObjects.Sprite {
     private velocityX: number = 0;
     private velocityY: number = 0;
     private angularVelocity: number = 0;
-    
+
+    private MOUSE_ROTATION_POWER = 2;
     private THRUST_POWER = 0.05;
-    private ROTATION_POWER = 0.003;
-    private MAX_SPEED = 6;
-    private MAX_ROTATION_SPEED = 0.08;
+    private ROTATION_POWER = 0.001;
+    private MAX_SPEED = 3;
+    private MAX_ROTATION_SPEED = 0.02;
     private ROTATION_DAMPING = 0.92;
 
     private keysPressed: Set<string> = new Set();
-    private keyboardEnabled: boolean = false;
 
     private movementMode: 'idle' | 'moving-to-point' | 'moving-with-direction' = 'idle';
     private targetX: number;
@@ -81,6 +82,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
             Player.gameScene = scene;
             this.setupGlobalInputHandlers();
         }
+
+        this.setDepth(10);
 
         scene.add.existing(this);
         this.setOrigin(0.5, 0.5);
@@ -121,7 +124,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         Player.gameScene.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
             if (!Player.selectedPlayer) return;
-            if (Player.selectedPlayer.controlMode === 'keyboard') return; // Ignore mouse input in keyboard mode
+            if (Player.selectedPlayer.controlMode === 'keyboard') return;
             if (pointer.rightButtonReleased()) return;
             Player.selectedPlayer.handleWorldPointerUp(pointer);
         });
@@ -146,7 +149,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
     private setupKeyboardHandlers(): void {
         this.scene.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
-            if (Player.selectedPlayer !== this || !this.keyboardEnabled) return;
+            if (Player.selectedPlayer !== this) return;
+            if (this.controlMode !== 'keyboard') return;
 
             const key = event.key.toUpperCase();
             if (['W', 'A', 'S', 'D', 'Q', 'E'].includes(key)) {
@@ -156,7 +160,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
         });
 
         this.scene.input.keyboard?.on('keyup', (event: KeyboardEvent) => {
-            if (Player.selectedPlayer !== this || !this.keyboardEnabled) return;
+            if (Player.selectedPlayer !== this) return;
+            if (this.controlMode !== 'keyboard') return;
 
             const key = event.key.toUpperCase();
             this.keysPressed.delete(key);
@@ -166,8 +171,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
             if (Player.selectedPlayer !== this) return;
 
             this.controlMode = this.controlMode === 'mouse' ? 'keyboard' : 'mouse';
-            this.keyboardEnabled = this.controlMode === 'keyboard';
-            
+
             if (this.controlMode === 'keyboard') {
                 this.clearCurrentMovement();
                 this.clearCommandQueue();
@@ -188,7 +192,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         this.highlightSprite = this.scene.add.sprite(this.x, this.y, "ship_player_1_highlight");
         this.highlightSprite.setOrigin(0.5, 0.5);
-        this.highlightSprite.setDepth(-1);
+        this.highlightSprite.setDepth(9);
         this.highlightSprite.setVisible(false);
     }
 
@@ -196,6 +200,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
         Player.selectedPlayer = this;
         if (this.highlightSprite) {
             this.highlightSprite.setVisible(true);
+        }
+        if (Player.cameraController) {
+            Player.cameraController.setFollowTarget(this);
         }
         this.createDebugGUI();
     }
@@ -216,15 +223,24 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.destroyDebugGUI();
     }
 
+    public static setCameraController(controller: any): void {
+        Player.cameraController = controller;
+    }
+
+    public selectShip(): void {
+        this.select();
+    }
+
     private createDebugGUI(): void {
         this.destroyDebugGUI();
 
         Player.gui = new dat.GUI({ name: 'Player Controls' });
-        
+
         const movementFolder = Player.gui.addFolder('Mouse Mode Controls');
         movementFolder.add(this as any, 'moveSpeed', 0.5, 10, 0.1).name('Move Speed');
+        movementFolder.add(this as any, 'MOUSE_ROTATION_POWER', 0.5, 3).name('Rotation Speed');
         movementFolder.open();
-        
+
         const physicsFolder = Player.gui.addFolder('Keyboard Mode Controls');
         physicsFolder.add(this as any, 'THRUST_POWER', 0.01, 0.2, 0.005).name('Thrust Power');
         physicsFolder.add(this as any, 'ROTATION_POWER', 0.001, 0.01, 0.0001).name('Rotation Power');
@@ -232,7 +248,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
         physicsFolder.add(this as any, 'MAX_ROTATION_SPEED', 0.01, 0.2, 0.01).name('Max Rotation Speed');
         physicsFolder.add(this as any, 'ROTATION_DAMPING', 0.8, 0.99, 0.01).name('Rotation Damping');
         physicsFolder.open();
-        
+
         const stateFolder = Player.gui.addFolder('Current State');
         const state = {
             velocityX: this.velocityX.toFixed(2),
@@ -242,7 +258,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
             controlMode: this.controlMode,
             movementMode: this.movementMode
         };
-        
+
         const updateState = () => {
             state.velocityX = this.velocityX.toFixed(2);
             state.velocityY = this.velocityY.toFixed(2);
@@ -251,9 +267,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
             state.controlMode = this.controlMode;
             state.movementMode = this.movementMode;
         };
-        
+
         this.scene.events.on('update', updateState);
-        
+
         stateFolder.add(state, 'velocityX').listen().name('Velocity X');
         stateFolder.add(state, 'velocityY').listen().name('Velocity Y');
         stateFolder.add(state, 'angularVelocity').listen().name('Angular Velocity');
@@ -261,7 +277,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
         stateFolder.add(state, 'controlMode').listen().name('Control Mode');
         stateFolder.add(state, 'movementMode').listen().name('Movement Mode');
         stateFolder.open();
-        
+
         const actions = {
             resetVelocity: () => {
                 this.velocityX = 0;
@@ -269,10 +285,11 @@ export default class Player extends Phaser.GameObjects.Sprite {
                 this.angularVelocity = 0;
             },
             resetPhysics: () => {
+                this.MOUSE_ROTATION_POWER = 2;
                 this.THRUST_POWER = 0.05;
-                this.ROTATION_POWER = 0.003;
-                this.MAX_SPEED = 6;
-                this.MAX_ROTATION_SPEED = 0.08;
+                this.ROTATION_POWER = 0.001;
+                this.MAX_SPEED = 3;
+                this.MAX_ROTATION_SPEED = 0.02;
                 this.ROTATION_DAMPING = 0.92;
                 this.moveSpeed = 3;
 
@@ -280,7 +297,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
                 this.createDebugGUI();
             }
         };
-        
+
         Player.gui.add(actions, 'resetVelocity').name('Reset Velocity');
         Player.gui.add(actions, 'resetPhysics').name('Reset Controls to Defaults');
     }
@@ -338,7 +355,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
             const dy = pointer.worldY - this.dragStartPoint.y;
             const dragDistance = Math.sqrt(dx * dx + dy * dy);
 
-            if (this.movedDuringDrag && dragDistance > 20 && this.previewDirection) { // threshold 20
+            if (this.movedDuringDrag && dragDistance > 20 && this.previewDirection) {
                 const dir = this.previewDirection;
                 const command: MovementCommand = {
                     kind: 'direction',
@@ -373,7 +390,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.renderClickMarker(graphics, x, y);
         const cmd: MovementCommand = { kind: 'point', x, y, graphics };
         this.commandQueue.push(cmd);
-        
     }
 
     private processNextCommand(): void {
@@ -434,7 +450,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.shipArrow.clear();
 
         if (this.controlMode === 'keyboard') {
-            // In keyboard mode, show velocity direction if moving
             const speed = Math.sqrt(this.velocityX * this.velocityX + this.velocityY * this.velocityY);
             if (speed > 0.5) {
                 const dirX = this.velocityX / speed;
@@ -491,9 +506,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         const { startX, startY, endX, endY, directionX, directionY } = this.previewDirection;
 
-    graphics.fillStyle(this.color, 0.8);
+        graphics.fillStyle(this.color, 0.8);
         graphics.fillCircle(startX, startY, 8);
-    graphics.lineStyle(2, this.color, 1);
+        graphics.lineStyle(2, this.color, 1);
         graphics.strokeCircle(startX, startY, 15);
 
         graphics.lineBetween(startX - 10, startY, startX + 10, startY);
@@ -523,7 +538,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
     }
 
     private updateKeyboardPhysics(): void {
-        // Apply rotation
         if (this.keysPressed.has('A')) {
             this.angularVelocity -= this.ROTATION_POWER;
         }
@@ -531,7 +545,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
             this.angularVelocity += this.ROTATION_POWER;
         }
 
-        // Apply rotational damping when no rotation keys pressed
         if (!this.keysPressed.has('A') && !this.keysPressed.has('D')) {
             this.angularVelocity *= this.ROTATION_DAMPING;
             if (Math.abs(this.angularVelocity) < 0.0001) {
@@ -539,27 +552,23 @@ export default class Player extends Phaser.GameObjects.Sprite {
             }
         }
 
-        // Clamp rotation speed
         this.angularVelocity = Phaser.Math.Clamp(
             this.angularVelocity,
             -this.MAX_ROTATION_SPEED,
             this.MAX_ROTATION_SPEED
         );
 
-        // Apply rotation to ship
         this.rotation += this.angularVelocity;
 
-        // Calculate thrust direction based on ship rotation
-        const shipAngle = this.rotation - Math.PI / 2; // -90 degrees because ship points up by default
+        const shipAngle = this.rotation - Math.PI / 2;
         const forwardX = Math.cos(shipAngle);
         const forwardY = Math.sin(shipAngle);
         const rightX = Math.cos(shipAngle + Math.PI / 2);
         const rightY = Math.sin(shipAngle + Math.PI / 2);
 
-        // Apply thrust based on keys and update highlight sprite
         const isForwardThrust = this.keysPressed.has('W');
         const isBackwardThrust = this.keysPressed.has('S');
-        
+
         if (isForwardThrust) {
             this.velocityX += forwardX * this.THRUST_POWER;
             this.velocityY += forwardY * this.THRUST_POWER;
@@ -571,7 +580,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
         } else {
             this.updateThrustVisual('none');
         }
-        
+
         if (this.keysPressed.has('Q')) {
             this.velocityX -= rightX * this.THRUST_POWER;
             this.velocityY -= rightY * this.THRUST_POWER;
@@ -581,7 +590,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
             this.velocityY += rightY * this.THRUST_POWER;
         }
 
-        // Clamp to max speed
         const currentSpeed = Math.sqrt(this.velocityX * this.velocityX + this.velocityY * this.velocityY);
         if (currentSpeed > this.MAX_SPEED) {
             const scale = this.MAX_SPEED / currentSpeed;
@@ -589,15 +597,12 @@ export default class Player extends Phaser.GameObjects.Sprite {
             this.velocityY *= scale;
         }
 
-        // Apply velocity to position
         this.x += this.velocityX;
         this.y += this.velocityY;
 
-        // Keep ship within bounds
         this.x = Phaser.Math.Clamp(this.x, 25, this.screenWidth - 25);
         this.y = Phaser.Math.Clamp(this.y, 25, this.screenHeight - 25);
 
-        // Stop at edges (bounce effect)
         if (this.x <= 25 || this.x >= this.screenWidth - 25) {
             this.velocityX *= -0.5;
         }
@@ -621,17 +626,15 @@ export default class Player extends Phaser.GameObjects.Sprite {
     public update(): void {
         if (this.controlMode === 'keyboard') {
             this.updateKeyboardPhysics();
-            // In keyboard mode, target rotation follows actual rotation
             this.targetRotation = this.rotation;
         } else {
-            // Mouse control mode
             if (this.movementMode === 'moving-to-point') {
                 this.updatePointMovement();
             } else if (this.movementMode === 'moving-with-direction') {
                 this.updateDirectionMovement();
             }
 
-            this.rotation = this.approachRotation(this.rotation, this.targetRotation, 0.1);
+            this.rotation = this.approachRotation(this.rotation, this.targetRotation, 0.05)
         }
 
         if (this.highlightSprite) {
@@ -691,7 +694,11 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         const finalTargetRotation = Math.atan2(this.currentDragDirection.directionY, this.currentDragDirection.directionX) + Math.PI / 2;
         const delta = Phaser.Math.Angle.Wrap(finalTargetRotation - this.initialRotation);
-        this.targetRotation = this.initialRotation + delta * rotationProgress;
+        if (Math.abs(delta) > 0) {
+            const rotationSpeed = this.MOUSE_ROTATION_POWER * rotationProgress;
+            this.targetRotation = this.initialRotation + rotationSpeed * delta;
+            this.targetRotation = finalTargetRotation;
+        }
 
         if (distance < 5) {
             this.movementMode = 'idle';

@@ -11,6 +11,8 @@ export default class GameScene extends Phaser.Scene {
     private uiCam!: Phaser.Cameras.Scene2D.Camera;
     private uiIgnored = new Set<Phaser.GameObjects.GameObject>();
     private mainIgnored = new Set<Phaser.GameObjects.GameObject>();
+    private cameraController!: CameraController;
+    private rectangles: Phaser.GameObjects.Rectangle[] = [];
 
     constructor() {
         super({ key: "GameScene" });
@@ -21,10 +23,12 @@ export default class GameScene extends Phaser.Scene {
     create() {
         this.cameras.main.setBounds(0, 0, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
 
+        this.createRandomRectangles();
         this.createPlayers();
         this.createEnemies();
 
-        new CameraController(this, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
+        this.cameraController = new CameraController(this, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
+        Player.setCameraController(this.cameraController);
 
         const controlsText = this.add
             .text(10, 10, 'MOUSE MODE (Press T to toggle)\nLeft Click to Select\nLeft Click/Drag to add points\nRight Click + Drag to Pan\nMouse Wheel to Zoom\n\nKEYBOARD MODE:\nW=Forward, S=Backward\nA=Rotate Left, D=Rotate Right\nQ=Strafe Left, E=Strafe Right', {
@@ -79,6 +83,23 @@ export default class GameScene extends Phaser.Scene {
         );
 
         this.players.push(player1, player2);
+
+        player1.selectShip();
+    }
+
+    private createRandomRectangles(): void {
+        const rectangleCount = 50;
+        
+        for (let i = 0; i < rectangleCount; i++) {
+            const x = Phaser.Math.Between(50, this.SCREEN_WIDTH - 50);
+            const y = Phaser.Math.Between(50, this.SCREEN_HEIGHT - 50);
+            const width = Phaser.Math.Between(30, 150);
+            const height = Phaser.Math.Between(30, 150);
+            const colorHex = Phaser.Display.Color.RandomRGB().color;
+            const alpha = Phaser.Math.FloatBetween(0.3, 0.9);
+            const rectangle = this.add.rectangle(x, y, width, height, colorHex, alpha);
+            this.rectangles.push(rectangle);
+        }
     }
 
     private createEnemies(): void {
@@ -91,6 +112,7 @@ export default class GameScene extends Phaser.Scene {
                 this.SCREEN_WIDTH,
                 this.SCREEN_HEIGHT
             );
+            enemy.setDepth(0);
             this.enemies.push(enemy);
         }
     }
@@ -112,6 +134,7 @@ export default class GameScene extends Phaser.Scene {
             }
         }
 
+        this.cameraController.update();
         this.players.forEach(player => player.update());
         this.enemies.forEach(enemy => enemy.update());
     }
