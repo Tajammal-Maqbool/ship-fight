@@ -12,7 +12,7 @@ export default class GameScene extends Phaser.Scene {
     private uiIgnored = new Set<Phaser.GameObjects.GameObject>();
     private mainIgnored = new Set<Phaser.GameObjects.GameObject>();
     private cameraController!: CameraController;
-    private rectangles: Phaser.GameObjects.Rectangle[] = [];
+    private stars: Phaser.GameObjects.Graphics[] = [];
 
     constructor() {
         super({ key: "GameScene" });
@@ -23,12 +23,13 @@ export default class GameScene extends Phaser.Scene {
     create() {
         this.cameras.main.setBounds(0, 0, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
 
-        this.createRandomRectangles();
-        this.createPlayers();
-        this.createEnemies();
-
+        this.createStarfield();
+        
         this.cameraController = new CameraController(this, this.SCREEN_WIDTH, this.SCREEN_HEIGHT);
         Player.setCameraController(this.cameraController);
+        
+        this.createPlayers();
+        this.createEnemies();
 
         const controlsText = this.add
             .text(10, 10, 'MOUSE MODE (Press T to toggle)\nLeft Click to Select\nLeft Click/Drag to add points\nRight Click + Drag to Pan\nMouse Wheel to Zoom\n\nKEYBOARD MODE:\nW=Forward, S=Backward\nA=Rotate Left, D=Rotate Right\nQ=Strafe Left, E=Strafe Right', {
@@ -87,18 +88,29 @@ export default class GameScene extends Phaser.Scene {
         player1.selectShip();
     }
 
-    private createRandomRectangles(): void {
-        const rectangleCount = 50;
+    private createStarfield(): void {
+        const starCount = 400;
         
-        for (let i = 0; i < rectangleCount; i++) {
-            const x = Phaser.Math.Between(50, this.SCREEN_WIDTH - 50);
-            const y = Phaser.Math.Between(50, this.SCREEN_HEIGHT - 50);
-            const width = Phaser.Math.Between(30, 150);
-            const height = Phaser.Math.Between(30, 150);
-            const colorHex = Phaser.Display.Color.RandomRGB().color;
-            const alpha = Phaser.Math.FloatBetween(0.3, 0.9);
-            const rectangle = this.add.rectangle(x, y, width, height, colorHex, alpha);
-            this.rectangles.push(rectangle);
+        for (let i = 0; i < starCount; i++) {
+            const x = Phaser.Math.Between(0, this.SCREEN_WIDTH);
+            const y = Phaser.Math.Between(0, this.SCREEN_HEIGHT);
+            const size = Phaser.Math.FloatBetween(0.5, 3);
+            const brightness = Phaser.Math.FloatBetween(0.5, 1);
+            
+            const starColors = [
+                0xFFFFFF, // white
+                0xCCDDFF, // blue-white
+                0xFFFFDD, // yellow-white
+                0xDDDDFF  // light blue
+            ];
+            const color = Phaser.Utils.Array.GetRandom(starColors);
+            
+            const star = this.add.graphics();
+            star.fillStyle(color, brightness);
+            star.fillCircle(x, y, size);
+            star.setDepth(-1);
+            
+            this.stars.push(star);
         }
     }
 
